@@ -1,6 +1,7 @@
 import upath from '../../core/upath';
+import { Readable } from 'stream';
 import FileSystem, { FileEntry, FileStats, FileType } from '../../core/fs/fileSystem';
-import { compareFolders, CompareResult } from '../compareFolders';
+import { compareFolders, compareFoldersByContent, CompareResult } from '../compareFolders';
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 
@@ -35,6 +36,7 @@ class FakeFs extends FileSystem {
   }
 
   private readonly _entries = new Map<string, FileStats>();
+  private readonly _content = new Map<string, Buffer>();
 
   addDir(dir: string): this {
     this._entries.set(dir, {
@@ -47,14 +49,18 @@ class FakeFs extends FileSystem {
     return this;
   }
 
-  addFile(fsPath: string, { size = 1, mtime = 1000 } = {}): this {
+  addFile(fsPath: string, { size = 1, mtime = 1000, content }: { size?: number; mtime?: number; content?: string | Buffer } = {}): this {
+    const body = Buffer.isBuffer(content)
+      ? content
+      : Buffer.from(content === undefined ? 'x'.repeat(size) : content);
     this._entries.set(fsPath, {
       type: FileType.File,
       mode: 0o644,
-      size,
+      size: body.length,
       mtime,
       atime: mtime,
     });
+    this._content.set(fsPath, body);
     return this;
   }
 
@@ -105,8 +111,12 @@ class FakeFs extends FileSystem {
   futimes(): never {
     return this._unsupported();
   }
-  get(): never {
-    return this._unsupported();
+  async get(fsPath: string): Promise<Readable> {
+    const content = this._content.get(fsPath);
+    if (content === undefined) {
+      throw Object.assign(new Error(`no such file ${fsPath}`), { code: 'ENOENT' });
+    }
+    return Readable.from([content]);
   }
   put(): never {
     return this._unsupported();
@@ -472,5 +482,126 @@ describe('compareFolders — cancellation', () => {
     // root-level entries are still classified (all four top dirs are dirs, so
     // nothing but directories live at the root)
     expect(results).toHaveLength(0);
+  });
+});
+
+describe('compareFoldersByContent', () => {
+  function contentTrees() {
+    const meter = new Meter();
+    const localFs = new FakeFs(meter, false)
+      .addDir('/local')
+      .addFile('/local/same-mtime-different.txt', { content: 'same', mtime: 1000 })
+      .addFile('/local/same-size-different.txt', { content: 'abcd' })
+      .addFile('/local/different-size.txt', { content: 'short' })
+      .addFile('/local/local-only.txt', { content: 'local' })
+      .addFile('/local/empty.txt', { content: '' })
+      .addFile('/local/model.tflite', { content: Buffer.from([0, 1, 2, 3, 255, 0]) })
+      .addFile('/local/ignored.log', { content: 'ignore me' });
+    const remoteFs = new FakeFs(meter, false)
+      .addDir('/remote')
+      .addFile('/remote/same-mtime-different.txt', { content: 'same', mtime: 9000 })
+      .addFile('/remote/same-size-different.txt', { content: 'wxyz' })
+      .addFile('/remote/different-size.txt', { content: 'much longer' })
+      .addFile('/remote/remote-only.txt', { content: 'remote' })
+      .addFile('/remote/empty.txt', { content: '' })
+      .addFile('/remote/model.tflite', { content: Buffer.from([0, 1, 2, 3, 255, 0]) })
+      .addFile('/remote/ignored.log', { content: 'different but ignored' });
+
+    return { localFs, remoteFs };
+  }
+
+  function byPath(results: CompareResult[]) {
+    return new Map(results.map(result => [result.relativePath, result]));
+  }
+
+  test('compares SHA-256 content instead of mtimes', async () => {
+    const { localFs, remoteFs } = contentTrees();
+
+    const results = byPath(
+      await compareFoldersByContent(contextFor(localFs, remoteFs, 4) as any)
+    );
+
+    expect(results.get('same-mtime-different.txt')!.status).toBe('same');
+    expect(results.get('same-size-different.txt')!.status).toBe('modified');
+    expect(results.get('different-size.txt')!.status).toBe('modified');
+    expect(results.get('local-only.txt')!.status).toBe('localOnly');
+    expect(results.get('remote-only.txt')!.status).toBe('remoteOnly');
+    expect(results.get('empty.txt')!.status).toBe('same');
+    expect(results.get('model.tflite')!.status).toBe('same');
+  });
+
+  test('honors ignore rules while walking content comparisons', async () => {
+    const { localFs, remoteFs } = contentTrees();
+    const ctx = contextFor(localFs, remoteFs, 4) as any;
+    ctx.config.ignore = (fsPath: string) => fsPath.endsWith('.log');
+
+    const results = await compareFoldersByContent(ctx);
+
+    expect(results.some(result => result.relativePath === 'ignored.log')).toBe(false);
+  });
+
+  test('remote read failures are reported as errors, not one-sided files', async () => {
+    const { localFs, remoteFs } = contentTrees();
+    jest.spyOn(remoteFs, 'get').mockImplementation(async (fsPath: string) => {
+      if (fsPath === '/remote/same-size-different.txt') {
+        throw new Error('EACCES: permission denied');
+      }
+      return FakeFs.prototype.get.call(remoteFs, fsPath);
+    });
+
+    const results = byPath(await compareFoldersByContent(contextFor(localFs, remoteFs, 4) as any));
+    const unreadable = results.get('same-size-different.txt')!;
+
+    expect(unreadable.status).toBe('error');
+    expect(unreadable.error).toContain('EACCES: permission denied');
+  });
+
+  test('a stream interrupted mid-read is reported as an error', async () => {
+    const { localFs, remoteFs } = contentTrees();
+    jest.spyOn(remoteFs, 'get').mockImplementation(async (fsPath: string) => {
+      if (fsPath === '/remote/same-size-different.txt') {
+        const stream = new Readable({
+          read() {
+            this.push(Buffer.from('wx'));
+            this.destroy(new Error('connection lost'));
+          },
+        });
+        return stream;
+      }
+      return FakeFs.prototype.get.call(remoteFs, fsPath);
+    });
+
+    const results = byPath(await compareFoldersByContent(contextFor(localFs, remoteFs, 4) as any));
+    const interrupted = results.get('same-size-different.txt')!;
+
+    expect(interrupted.status).toBe('error');
+    expect(interrupted.error).toContain('connection lost');
+  });
+
+  test('a root connection or listing failure is surfaced as an error result', async () => {
+    const { localFs, remoteFs } = contentTrees();
+    jest.spyOn(remoteFs, 'list').mockRejectedValue(new Error('ECONNRESET'));
+
+    const results = await compareFoldersByContent(contextFor(localFs, remoteFs, 4) as any);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].relativePath).toBe('.');
+    expect(results[0].status).toBe('error');
+    expect(results[0].error).toContain('ECONNRESET');
+  });
+
+  test('a connection failure is surfaced as an error result', async () => {
+    const { localFs } = contentTrees();
+    const ctx = contextFor(localFs, new FakeFs(new Meter(), false), 4) as any;
+    ctx.fileService.getRemoteFileSystem = async () => {
+      throw new Error('connect ECONNREFUSED');
+    };
+
+    const results = await compareFoldersByContent(ctx);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].relativePath).toBe('.');
+    expect(results[0].status).toBe('error');
+    expect(results[0].error).toContain('connect ECONNREFUSED');
   });
 });

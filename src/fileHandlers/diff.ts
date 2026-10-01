@@ -5,9 +5,14 @@ import { fileOperations } from '../core';
 import { makeTmpFile } from '../helper';
 import createFileHandler from './createFileHandler';
 
-export const diff = createFileHandler({
+interface DiffOptions {
+  preview?: boolean;
+  preserveFocus?: boolean;
+}
+
+export const diff = createFileHandler<DiffOptions>({
   name: 'diff',
-  async handle() {
+  async handle(options) {
     const remoteFs = await this.fileService.getRemoteFileSystem(this.config);
     const localFs = this.fileService.getLocalFileSystem();
     const { localFsPath, remoteFsPath } = this.target;
@@ -20,7 +25,8 @@ export const diff = createFileHandler({
     await diffFiles(
       tmpPath,
       localFsPath,
-      `${path.basename(localFsPath)} (${this.fileService.name || 'remote'} ↔ local)`
+      `${path.basename(localFsPath)} (${this.fileService.name || 'remote'} ↔ local)`,
+      options
     );
   },
 });

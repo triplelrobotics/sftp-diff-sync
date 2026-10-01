@@ -1,3 +1,5 @@
+import { createHash } from 'crypto';
+import { Readable } from 'stream';
 import { FileEntry, FileSystem, FileType } from '../core';
 import upath from '../core/upath';
 import { createLimiter, Limiter } from '../utils';
@@ -36,6 +38,8 @@ interface WalkContext {
   // filesystems
   limiter: Limiter;
   token?: CompareCancellationToken;
+  compareContent?: boolean;
+  ignore?: (localFsPath: string) => boolean;
 }
 
 export interface CompareResult {
@@ -55,6 +59,36 @@ export interface CompareResult {
 
 function isFileModified(a: FileEntry, b: FileEntry): boolean {
   return Math.floor(a.mtime / 1000) !== Math.floor(b.mtime / 1000) || a.size !== b.size;
+}
+
+function hashStream(stream: Readable): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = createHash('sha256');
+    stream.on('data', chunk => hash.update(chunk));
+    stream.once('error', reject);
+    stream.once('end', () => resolve(hash.digest('hex')));
+  });
+}
+
+async function sha256(fs: FileSystem, fsPath: string): Promise<string> {
+  const stream = await fs.get(fsPath);
+  return hashStream(stream);
+}
+
+async function isFileModifiedByContent(
+  ctx: WalkContext,
+  localEntry: FileEntry,
+  remoteEntry: FileEntry
+): Promise<boolean> {
+  if (localEntry.size !== remoteEntry.size) {
+    return true;
+  }
+
+  const [localHash, remoteHash] = await Promise.all([
+    ctx.limiter(() => sha256(ctx.localFs, localEntry.fspath)),
+    ctx.limiter(() => sha256(ctx.remoteFs, remoteEntry.fspath)),
+  ]);
+  return localHash !== remoteHash;
 }
 
 function toHash(entries: FileEntry[]): { [name: string]: FileEntry } {
@@ -128,6 +162,11 @@ async function walk(
     const localEntry = localTable[name];
     const remoteEntry = remoteTable[name];
     const relativePath = relativeDir ? `${relativeDir}/${name}` : name;
+    const localFsPath = localEntry ? localEntry.fspath : localFs.pathResolver.join(localDir, name);
+
+    if (ctx.ignore && ctx.ignore(localFsPath)) {
+      continue;
+    }
 
     if (localEntry && remoteEntry) {
       if (localEntry.type === FileType.Directory && remoteEntry.type === FileType.Directory) {
@@ -139,15 +178,29 @@ async function walk(
         continue;
       }
 
+      let modified: boolean;
+      let error: string | undefined;
+      try {
+        modified =
+          ctx.compareContent && localEntry.type === FileType.File && remoteEntry.type === FileType.File
+            ? await isFileModifiedByContent(ctx, localEntry, remoteEntry)
+            : isFileModified(localEntry, remoteEntry);
+      } catch (err) {
+        modified = true;
+        error = `read ${relativePath} failed: ${errorMessage(err)}`;
+        logger.warn(`compare content failed for ${relativePath}: ${errorMessage(err)}`);
+      }
+
       results.push({
         relativePath,
         name,
         type: localEntry.type,
-        status: isFileModified(localEntry, remoteEntry) ? 'modified' : 'same',
+        status: error ? 'error' : modified ? 'modified' : 'same',
         localFsPath: localEntry.fspath,
         remoteFsPath: remoteEntry.fspath,
         localMtime: localEntry.mtime,
         remoteMtime: remoteEntry.mtime,
+        error,
       });
     } else if (localEntry) {
       results.push({
@@ -206,6 +259,66 @@ export async function compareFolders(
   // two distinct paths equal (canonically equivalent accents, ignorable
   // characters), which a stable sort would then leave in arrival order — the
   // path tiebreak pins those down too.
+  results.sort(
+    (a, b) =>
+      a.relativePath.localeCompare(b.relativePath) ||
+      (a.relativePath < b.relativePath ? -1 : a.relativePath > b.relativePath ? 1 : 0)
+  );
+  return results;
+}
+
+export async function compareFoldersByContent(
+  ctx: FileHandlerContext,
+  token?: CompareCancellationToken
+): Promise<CompareResult[]> {
+  const localFs = ctx.fileService.getLocalFileSystem();
+  const { localFsPath, remoteFsPath } = ctx.target;
+  let remoteFs: FileSystem;
+
+  try {
+    remoteFs = await ctx.fileService.getRemoteFileSystem(ctx.config);
+  } catch (err) {
+    return [
+      {
+        relativePath: '.',
+        name: upath.basename(localFsPath) || '.',
+        type: FileType.Directory,
+        status: 'error',
+        localFsPath,
+        remoteFsPath,
+        localMtime: 0,
+        remoteMtime: 0,
+        error: errorMessage(err),
+      },
+    ];
+  }
+
+  const results: CompareResult[] = [];
+  const walkCtx: WalkContext = {
+    localFs,
+    remoteFs,
+    limiter: createLimiter(ctx.config.concurrency || DEFAULT_WALK_CONCURRENCY),
+    token,
+    compareContent: true,
+    ignore: ctx.config.ignore || undefined,
+  };
+
+  try {
+    await walk(walkCtx, localFsPath, remoteFsPath, '', results);
+  } catch (err) {
+    results.push({
+      relativePath: '.',
+      name: upath.basename(localFsPath) || '.',
+      type: FileType.Directory,
+      status: 'error',
+      localFsPath,
+      remoteFsPath,
+      localMtime: 0,
+      remoteMtime: 0,
+      error: errorMessage(err),
+    });
+  }
+
   results.sort(
     (a, b) =>
       a.relativePath.localeCompare(b.relativePath) ||
