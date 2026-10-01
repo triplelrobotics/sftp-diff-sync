@@ -2,20 +2,20 @@
   "name": "sftp-diff-sync",
   "displayName": "SFTP Diff Sync",
   "description": "Personal SFTPresso fork with read-only SHA-256 folder content comparison.",
-  "version": "1.34.0",
-  "publisher": "local",
-  "author": "Joe Werkheiser <j.m.werkheiser@gmail.com> (https://github.com/jmwerk)",
+  "version": "0.1.0",
+  "publisher": "triplelrobotics",
+  "author": "triplelrobotics <triplelrobotics@gmail.com> (https://github.com/triplelrobotics)",
   "engines": {
     "vscode": "^1.134.0",
     "node": ">=22"
   },
   "bugs": {
-    "url": "https://github.com/jmwerk/SFTPresso/issues"
+    "url": "https://github.com/triplelrobotics/sftp-diff-sync/issues"
   },
-  "homepage": "https://jmwerk.github.io/SFTPresso/",
+  "homepage": "https://github.com/triplelrobotics/sftp-diff-sync#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jmwerk/SFTPresso.git"
+    "url": "https://github.com/triplelrobotics/sftp-diff-sync.git"
   },
   "license": "MIT",
   "categories": [

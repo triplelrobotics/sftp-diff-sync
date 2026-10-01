@@ -5,6 +5,7 @@
 !dist/extension.js
 !package.json
 !README.md
+!UPSTREAM.md
 !CHANGELOG.md
 !LICENSE
 !resources/**/*

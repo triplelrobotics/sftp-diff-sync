@@ -1,6 +1,6 @@
 # SFTP Diff Sync
 
-Personal VS Code extension fork based on [SFTPresso](https://github.com/jmwerk/SFTPresso). It adds a strictly read-only, SHA-256-based **`SFTP: Compare Folders by Content`** command while retaining the upstream SFTP workflows and configuration format.
+Personal VS Code extension fork based on [SFTPresso](https://github.com/jmwerk/SFTPresso), initially from its `develop` branch at commit [`9fc6418`](https://github.com/jmwerk/SFTPresso/commit/9fc6418c23c8704ffe7a06a238fcd8e523be9710). It adds a strictly read-only, SHA-256-based **`SFTP: Compare Folders by Content`** command while retaining the upstream SFTP workflows and configuration format. See [UPSTREAM.md](UPSTREAM.md) for provenance and synchronization details.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -12,9 +12,9 @@ Sync files between a local folder and a remote server over **SFTP (SSH)** or **F
 - **Upstream docs:** [project wiki](https://github.com/jmwerk/SFTPresso/wiki)
 - **Upstream repository:** https://github.com/jmwerk/SFTPresso
 
-Actively maintained by [@jmwerk](https://github.com/jmwerk). Forked from [Natizyskunk's vscode-sftp](https://github.com/Natizyskunk/vscode-sftp), which continued [liximomo's original SFTP plugin](https://github.com/liximomo/vscode-sftp) after it went unmaintained. Issues and pull requests welcome.
+SFTP Diff Sync is maintained by [@triplelrobotics](https://github.com/triplelrobotics). Its upstream, SFTPresso, is maintained by [@jmwerk](https://github.com/jmwerk) and descends from [Natizyskunk's vscode-sftp](https://github.com/Natizyskunk/vscode-sftp) and [liximomo's original SFTP plugin](https://github.com/liximomo/vscode-sftp).
 
-> **Maintenance status:** As of 2026 this fork is where fixes and updates land. Recent work includes a migration to the `basic-ftp` client, secure password storage, a Transfers view with per-file progress, guided config setup, and a modernized esbuild/TypeScript 5 toolchain — see the [CHANGELOG](CHANGELOG.md) for the full list.
+> **Versioning:** SFTP Diff Sync uses its own version series, beginning at `0.1.0`. Upstream SFTPresso versions are tracked separately in [UPSTREAM.md](UPSTREAM.md).
 
 ## Features
 
