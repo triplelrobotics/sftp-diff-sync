@@ -15,7 +15,10 @@ const STATUS_LABEL: { [key in CompareStatus]: string } = {
 };
 
 async function showResults(results: CompareResult[]): Promise<void> {
-  const visible = results.filter(r => r.status !== 'same');
+  const mtimeDiffers = (result: CompareResult) =>
+    result.status === 'same' &&
+    Math.floor(result.localMtime / 1000) !== Math.floor(result.remoteMtime / 1000);
+  const visible = results.filter(result => result.status !== 'same' || mtimeDiffers(result));
   if (visible.length === 0) {
     window.showInformationMessage('Compare Folders by Content: local and remote are identical.');
     return;
@@ -56,13 +59,15 @@ async function showResults(results: CompareResult[]): Promise<void> {
       itemType: 'result' as const,
       label: `${STATUS_LABEL[result.status]}  ${result.relativePath}`,
       description: result.type === FileType.Directory ? '(folder)' : '',
-      detail: result.error,
+      detail: mtimeDiffers(result)
+        ? 'Content identical; mtime differs. Skipped by content sync.'
+        : result.error,
       result,
     }))
   );
 
   const picked = await window.showQuickPick(items, {
-    placeHolder: `${visible.length} content difference(s) found. Select a modified file to diff...`,
+    placeHolder: `${results.filter(result => result.status !== 'same').length} content difference(s); ${results.filter(mtimeDiffers).length} identical file(s) have different mtimes.`,
     matchOnDescription: true,
     matchOnDetail: true,
   });

@@ -163,3 +163,56 @@ export async function confirmSyncOrProceed(
   );
   return choice === 'Proceed';
 }
+
+export async function confirmContentSyncOrProceed(
+  results: CompareResult[],
+  option: SyncPreviewOption
+): Promise<boolean> {
+  const plan = computeSyncPlan(results, TransferDirection.LOCAL_TO_REMOTE, option);
+  const identical = results.filter(result => result.status === 'same');
+  const identicalWithDifferentMtime = identical.filter(
+    result =>
+      Math.floor(result.localMtime / 1000) !== Math.floor(result.remoteMtime / 1000)
+  );
+
+  // A content sync must never write from a partial comparison. Unlike the
+  // legacy preview, there is no useful "proceed anyway" interpretation here:
+  // the SHA result is the source of truth for deciding what to upload.
+  if (plan.unreadable.length > 0) {
+    const detail = buildDetail(plan, 'upload');
+    await window.showErrorMessage(
+      `Sync Local → Remote by Content cancelled: ${pluralize(
+        plan.unreadable.length,
+        'entry'
+      )} could not be read.`,
+      { modal: true, detail }
+    );
+    return false;
+  }
+
+  const total = plan.create.length + plan.overwrite.length + plan.delete.length;
+  if (total === 0) {
+    window.showInformationMessage(
+      'SFTP Sync Local → Remote by Content: nothing to do — local and remote contents match.'
+    );
+    return false;
+  }
+
+  const parts = [
+    pluralize(plan.create.length, 'upload'),
+    pluralize(plan.overwrite.length, 'overwrite'),
+    pluralize(plan.delete.length, 'deletion'),
+  ];
+  const skipNote =
+    `Content sync skips ${pluralize(identical.length, 'content-identical file')}` +
+    ` by default; ${pluralize(
+      identicalWithDifferentMtime.length,
+      'file'
+    )} have different mtimes.`;
+  const choice = await window.showWarningMessage(
+    `Sync Local → Remote by Content: ${parts.join(', ')}. Proceed?`,
+    { modal: true, detail: `${skipNote}\n\n${buildDetail(plan, 'upload')}` },
+    'Proceed'
+  );
+  return choice === 'Proceed';
+}

@@ -6,7 +6,8 @@ import { FileEntry, TransferTask } from '../../core';
 import logger from '../../logger';
 import { refreshRemoteExplorer } from '../shared';
 import createFileHandler, { FileHandlerContext } from '../createFileHandler';
-import { confirmSyncOrProceed } from '../syncPreview';
+import { compareFoldersByContent } from '../compareFolders';
+import { confirmContentSyncOrProceed, confirmSyncOrProceed } from '../syncPreview';
 import { diff } from '../diff';
 import { confirmUpload, updateBaselineAfterTransfer } from './conflictCheck';
 import {
@@ -226,6 +227,70 @@ const downloadFolderHandle = createTransferHandle(
   ctx => `SFTP: downloading ${path.basename(ctx.target.localFsPath)}`
 );
 
+async function runSyncLocalToRemote(
+  ctx: FileHandlerContext,
+  option: SyncOption,
+  label: string
+): Promise<void> {
+  const remoteFs = await ctx.fileService.getRemoteFileSystem(ctx.config);
+  const localFs = ctx.fileService.getLocalFileSystem();
+  const { localFsPath, remoteFsPath } = ctx.target;
+  const scheduler = ctx.fileService.createTransferScheduler(
+    ctx.config.concurrency,
+    ctx.config.retry,
+    ctx.config.stallTimeout,
+    ctx.config
+  );
+  option.filePerm = ctx.config.filePerm;
+  option.dirPerm = ctx.config.dirPerm;
+  const skipped: SkippedEntry[] = [];
+  const deleted = await withTransferProgress(
+    `SFTP: ${label.toLowerCase()} (${path.basename(localFsPath)})`,
+    scheduler,
+    async trackTask => {
+      const result = await sync(
+        {
+          srcFsPath: localFsPath,
+          srcFs: localFs,
+          targetFsPath: remoteFsPath,
+          targetFs: remoteFs,
+          transferOption: option,
+          transferDirection: TransferDirection.LOCAL_TO_REMOTE,
+          walkConcurrency: ctx.config.concurrency,
+          token: { isCancelled: () => scheduler.isStopped() },
+          skipped,
+        },
+        t => {
+          trackTask(t);
+          scheduler.add(t);
+        }
+      );
+      await scheduler.run();
+      return result;
+    }
+  );
+  reportDeletions(label, deleted);
+  reportSkipped(label, skipped);
+}
+
+function localToRemoteSyncOption(ctx: FileHandlerContext): SyncOption {
+  const config = ctx.config;
+  const syncOption = config.syncOption || {};
+  return {
+    perserveTargetMode: config.protocol === 'sftp' && !config.filePerm && !config.dirPerm,
+    useTempFile: config.useTempFile,
+    openSsh: config.openSsh,
+    ignore: config.ignore,
+    maxFileSize: config.maxFileSize,
+    transferMode: config.transferMode,
+    batchConcurrency: config.concurrency,
+    delete: syncOption.delete,
+    skipCreate: syncOption.skipCreate,
+    ignoreExisting: syncOption.ignoreExisting,
+    update: syncOption.update,
+  };
+}
+
 export const sync2Remote = createFileHandler<SyncOption>({
   name: 'sync local ➞ remote',
   async handle(option) {
@@ -234,64 +299,53 @@ export const sync2Remote = createFileHandler<SyncOption>({
     if (!(await confirmSyncOrProceed(this, TransferDirection.LOCAL_TO_REMOTE, option))) {
       return;
     }
-    const remoteFs = await this.fileService.getRemoteFileSystem(this.config);
-    const localFs = this.fileService.getLocalFileSystem();
-    const { localFsPath, remoteFsPath } = this.target;
-    const scheduler = this.fileService.createTransferScheduler(
-      this.config.concurrency,
-      this.config.retry,
-      this.config.stallTimeout,
-      this.config
-    );
-    // Attach filePerm and dirPerm to transferOption
-    option.filePerm = this.config.filePerm;
-    option.dirPerm = this.config.dirPerm;
-    const skipped: SkippedEntry[] = [];
-    const deleted = await withTransferProgress(
-      `SFTP: sync local → remote (${path.basename(localFsPath)})`,
-      scheduler,
-      async trackTask => {
-        const result = await sync(
-          {
-            srcFsPath: localFsPath,
-            srcFs: localFs,
-            targetFsPath: remoteFsPath,
-            targetFs: remoteFs,
-            transferOption: option,
-            transferDirection: TransferDirection.LOCAL_TO_REMOTE,
-            walkConcurrency: this.config.concurrency,
-            token: { isCancelled: () => scheduler.isStopped() },
-            skipped,
-          },
-          t => {
-            trackTask(t);
-            scheduler.add(t);
-          }
-        );
-        await scheduler.run();
-        return result;
-      }
-    );
-    reportDeletions('Sync Local → Remote', deleted);
-    reportSkipped('Sync Local → Remote', skipped);
+    await runSyncLocalToRemote(this, option, 'Sync Local → Remote');
   },
   transformOption() {
-    const config = this.config;
-    const syncOption = config.syncOption || {};
-    return {
-      perserveTargetMode: config.protocol === 'sftp' && !config.filePerm && !config.dirPerm,
-      useTempFile: config.useTempFile,
-      openSsh: config.openSsh,
-      // remoteTimeOffsetInHours: config.remoteTimeOffsetInHours,
-      ignore: config.ignore,
-      maxFileSize: config.maxFileSize,
-      transferMode: config.transferMode,
-      batchConcurrency: config.concurrency,
-      delete: syncOption.delete,
-      skipCreate: syncOption.skipCreate,
-      ignoreExisting: syncOption.ignoreExisting,
-      update: syncOption.update,
-    };
+    return localToRemoteSyncOption(this);
+  },
+  afterHandle() {
+    refreshRemoteExplorer(this.target, true);
+  },
+});
+
+export const sync2RemoteByContent = createFileHandler<SyncOption>({
+  name: 'sync local ➞ remote by content',
+  async handle(option) {
+    let cancelled = false;
+    const results = await window.withProgress(
+      {
+        location: ProgressLocation.Notification,
+        title: 'Comparing local and remote folders by content...',
+        cancellable: true,
+      },
+      async (_progress, token) => {
+        const subscription = token.onCancellationRequested(() => {
+          cancelled = true;
+        });
+        try {
+          return await compareFoldersByContent(this, {
+            isCancelled: () => token.isCancellationRequested,
+          });
+        } finally {
+          cancelled = cancelled || token.isCancellationRequested;
+          subscription.dispose();
+        }
+      }
+    );
+
+    if (cancelled || !(await confirmContentSyncOrProceed(results, option))) {
+      return;
+    }
+
+    const modifiedPaths = new Set(
+      results.filter(result => result.status === 'modified').map(result => result.localFsPath)
+    );
+    option.shouldTransfer = source => modifiedPaths.has(source.fspath);
+    await runSyncLocalToRemote(this, option, 'Sync Local → Remote by Content');
+  },
+  transformOption() {
+    return localToRemoteSyncOption(this);
   },
   afterHandle() {
     refreshRemoteExplorer(this.target, true);

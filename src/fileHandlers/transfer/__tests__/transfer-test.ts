@@ -140,6 +140,42 @@ describe('transfer algorithm', () => {
       );
     });
 
+    test('sync can use a content comparison result instead of mtime', async () => {
+      fillFs({
+        local: {
+          identical: file('same bytes', 10),
+          changed: file('local bytes'),
+          localOnly: file('new file'),
+        },
+        remote: {
+          identical: file('same bytes'),
+          changed: file('other bytes'),
+        },
+      });
+
+      const tasks: TransferTask[] = [];
+      const shouldTransfer = jest.fn(source => source.name === 'changed');
+      await sync(
+        {
+          srcFsPath: '/local',
+          srcFs: localFs,
+          targetFs: localFs,
+          targetFsPath: '/remote',
+          transferDirection: TransferDirection.LOCAL_TO_REMOTE,
+          transferOption: {
+            perserveTargetMode: false,
+            shouldTransfer,
+          },
+        },
+        task => tasks.push(task)
+      );
+
+      expect(shouldTransfer).toHaveBeenCalledTimes(2);
+      expect(mapList(tasks, 'targetFsPath').sort()).toEqual(
+        ['/remote/changed', '/remote/localOnly'].formatSep().sort()
+      );
+    });
+
     test('sync --delete', async () => {
       fillFs({
         local: {

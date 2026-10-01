@@ -35,6 +35,10 @@ interface SyncOption extends TransferOption {
 
   // make newest file to be present in both locations.
   bothDiretions?: boolean;
+
+  // Optional comparison result supplied by content-aware sync. The regular
+  // sync path leaves this unset and continues using size + mtime.
+  shouldTransfer?: (source: FileEntry, target: FileEntry) => boolean;
 }
 
 // Consulted while the tree is being walked so that cancelling a transfer stops
@@ -413,8 +417,13 @@ async function _sync(
               }
             }
 
-            // only transfer changed files
-            if (isFileModified(from, to)) {
+            // only transfer changed files. Content-aware sync supplies the
+            // SHA-256 result here; the established sync behavior remains the
+            // fallback for every other command.
+            const modified = transferOption.shouldTransfer
+              ? transferOption.shouldTransfer(from, to)
+              : isFileModified(from, to);
+            if (modified) {
               if (exceedsMaxSize(from.size, transferOption.maxFileSize)) {
                 recordSkipped(config, from.fspath, from.size);
                 return;

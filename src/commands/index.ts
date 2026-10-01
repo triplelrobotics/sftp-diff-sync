@@ -44,6 +44,7 @@ import fileCommandRevealInExplorer from './fileCommandRevealInExplorer';
 import fileCommandRevealInRemoteExplorer from './fileCommandRevealInRemoteExplorer';
 import fileCommandSyncBothDirections from './fileCommandSyncBothDirections';
 import fileCommandSyncLocalToRemote from './fileCommandSyncLocalToRemote';
+import fileCommandSyncLocalToRemoteByContent from './fileCommandSyncLocalToRemoteByContent';
 import fileCommandSyncRemoteToLocal from './fileCommandSyncRemoteToLocal';
 import fileCommandUpload from './fileCommandUpload';
 import fileCommandUploadActiveFile from './fileCommandUploadActiveFile';
@@ -105,6 +106,7 @@ export default {
   fileCommandRevealInRemoteExplorer,
   fileCommandSyncBothDirections,
   fileCommandSyncLocalToRemote,
+  fileCommandSyncLocalToRemoteByContent,
   fileCommandSyncRemoteToLocal,
   fileCommandUpload,
   fileCommandUploadActiveFile,

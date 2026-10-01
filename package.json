@@ -2,7 +2,7 @@
   "name": "sftp-diff-sync",
   "displayName": "SFTP Diff Sync",
   "description": "Personal SFTPresso fork with read-only SHA-256 folder content comparison.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "triplelrobotics",
   "author": "triplelrobotics <triplelrobotics@gmail.com> (https://github.com/triplelrobotics)",
   "engines": {
@@ -288,7 +288,12 @@
       },
       {
         "command": "sftp.sync.localToRemote",
-        "title": "Sync Local -> Remote",
+        "title": "Sync Local -> Remote (Not Recommended)",
+        "category": "SFTP"
+      },
+      {
+        "command": "sftp.sync.localToRemoteByContent",
+        "title": "Sync Local -> Remote by Content (Recommended)",
         "category": "SFTP"
       },
       {
@@ -528,6 +533,10 @@
           "when": "sftp.enabled"
         },
         {
+          "command": "sftp.sync.localToRemoteByContent",
+          "when": "sftp.enabled"
+        },
+        {
           "command": "sftp.sync.remoteToLocal",
           "when": "sftp.enabled"
         },
@@ -675,13 +684,18 @@
           "when": "sftp.enabled && explorerResourceIsFolder"
         },
         {
-          "command": "sftp.sync.remoteToLocal",
+          "command": "sftp.sync.localToRemoteByContent",
           "group": "sftp.sync@2",
           "when": "sftp.enabled && explorerResourceIsFolder"
         },
         {
-          "command": "sftp.sync.bothDirections",
+          "command": "sftp.sync.remoteToLocal",
           "group": "sftp.sync@3",
+          "when": "sftp.enabled && explorerResourceIsFolder"
+        },
+        {
+          "command": "sftp.sync.bothDirections",
+          "group": "sftp.sync@4",
           "when": "sftp.enabled && explorerResourceIsFolder"
         },
         {

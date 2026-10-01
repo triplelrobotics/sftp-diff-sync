@@ -1,6 +1,6 @@
 # SFTP Diff Sync
 
-Personal VS Code extension fork based on [SFTPresso](https://github.com/jmwerk/SFTPresso), initially from its `develop` branch at commit [`9fc6418`](https://github.com/jmwerk/SFTPresso/commit/9fc6418c23c8704ffe7a06a238fcd8e523be9710). It adds a strictly read-only, SHA-256-based **`SFTP: Compare Folders by Content`** command while retaining the upstream SFTP workflows and configuration format. See [UPSTREAM.md](UPSTREAM.md) for provenance and synchronization details.
+Personal VS Code extension fork based on [SFTPresso](https://github.com/jmwerk/SFTPresso), initially from its `develop` branch at commit [`9fc6418`](https://github.com/jmwerk/SFTPresso/commit/9fc6418c23c8704ffe7a06a238fcd8e523be9710). It adds SHA-256-based folder comparison and local-to-remote content sync while retaining the upstream SFTP workflows and configuration format. See [UPSTREAM.md](UPSTREAM.md) for provenance and synchronization details.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -21,6 +21,7 @@ SFTP Diff Sync is maintained by [@triplelrobotics](https://github.com/triplelrob
 - Browse remote files in the **Remote Explorer**, with multi-select download/upload
 - **Filter the Remote Explorer** (**`SFTP: Filter Remote Explorer`** / **`SFTP: Clear Filter`**) — live substring search across the whole remote tree, including collapsed folders you haven't opened yet. (VS Code's own `workbench.list.keyboardNavigation: filter` setting is a handy complement for searching within a folder you've already expanded.)
 - **Diff** a local file against its remote copy, or **Compare Folders** for a recursive diff
+- **Sync Local → Remote by Content (Recommended)** uploads only SHA-256 differences, explicitly notes content-identical files skipped despite mtime changes, and always previews the exact uploads, overwrites, and optional deletions before writing
 - **Sync** in either or both directions, with an optional dry-run preview (`syncConfirm`)
 - **Upload/Download** files, folders, or the whole project — optionally to all profiles at once
 - **Upload on save** — with a one-click **`SFTP: Toggle Upload on Save`** command and a status-bar indicator — and a **file watcher** for changes made outside the editor
